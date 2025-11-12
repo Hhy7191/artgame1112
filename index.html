@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang='ko'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>나만의 아트 스튜디오</title>
+    
+    <!-- Tailwind CSS 로드 -->
+    <script src='https://cdn.tailwindcss.com'></script>
+    <style>
+        /* 폰트 설정 */
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* 캔버스 스타일: 부모 컨테이너에 맞게 반응형으로 조정 */
+        #drawingCanvas {
+            background-color: #ffffff;
+            touch-action: none; /* 터치 스크롤 방지 */
+            border: 1px solid #e5e7eb;
+        }
+        
+        /* 커서 스타일 변경 */
+        .cursor-brush { cursor: crosshair; }
+        .cursor-text { cursor: text; }
+        .cursor-grab { cursor: grab !important; } /* 텍스트 배치 대기 상태 */
+
+        /* 템플릿 썸네일 스타일 */
+        .template-thumbnail {
+            width: 40px; 
+            height: 40px;
+            object-fit: cover;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.1s;
+            flex-shrink: 0; 
+            border-radius: 6px;
+            border: 2px solid transparent;
+        }
+
+        .template-thumbnail:hover {
+            transform: scale(1.05);
+        }
+
+        .template-thumbnail.active {
+            border-color: #3b82f6; /* Blue-500 */
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); 
+        }
+        
+        /* 메시지 박스 애니메이션 */
+        #messageBox {
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            transform: translateY(10px) translateX(-50%); 
+        }
+        #messageBox.show {
+            opacity: 1;
+            transform: translateY(0) translateX(-50%);
+        }
+    </style>
+    <!-- lucide icons 로드 -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class='bg-gray-50 min-h-screen p-3 flex flex-col items-center'>
+
+    <div id="messageBox" class="fixed top-5 left-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-xl z-50"></div>
+
+    <div class='w-full max-w-5xl bg-white rounded-xl shadow-2xl p-6 space-y-4'>
+        <!-- 타이틀 및 설명 -->
+        <header class='text-center'>
+            <h1 class='text-3xl font-extrabold text-gray-800 flex items-center justify-center space-x-2'>
+                <i data-lucide="palette" class="w-7 h-7 text-blue-600"></i>
+                <span>나만의 아트 스튜디오</span>
+            </h1>
+            <p class='text-gray-500 mt-1'>로르샤흐 이미지 위에서 당신의 상상력을 표현해보세요.</p>
+        </header>
+
+        <!-- 템플릿 선택 영역 -->
+        <div class="p-3 bg-gray-100 rounded-xl shadow-inner">
+            <span class="text-sm font-semibold text-gray-700 block mb-2">🎨 배경 템플릿 선택 (로르샤흐 이미지)</span>
+            <div id="templateContainer" class="flex space-x-3 overflow-x-auto pb-1">
+                <!-- 템플릿 썸네일들이 여기에 삽입됩니다 -->
+            </div>
+        </div>
+
+        <!-- 캔버스 및 도구 영역 -->
+        <div class='flex flex-col lg:flex-row space-y-4 lg:space-y-0 lg:space-x-4'>
+            
+            <!-- 도구 패널 (좌측) -->
+            <div class='bg-gray-100 p-4 rounded-xl shadow-lg lg:w-48 flex flex-row lg:flex-col space-x-3 lg:space-x-0 lg:space-y-3 overflow-x-auto lg:overflow-visible flex-shrink-0'>
+                
+                <!-- 1. 붓/텍스트 버튼 그룹 -->
+                <div class="flex space-x-3 flex-shrink-0">
+                    <button id="brushTool" class="tool-button w-10 h-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition active" data-mode="brush" title="붓 (그리기)">
+                        <i data-lucide="paintbrush" class="w-5 h-5 mx-auto"></i>
+                    </button>
+                    <button id="textTool" class="tool-button w-10 h-10 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition" data-mode="text" title="텍스트 입력">
+                        <i data-lucide="type" class="w-5 h-5 mx-auto"></i>
+                    </button>
+                </div>
+                
+                <!-- 2. 색상 선택기 (사용자 요청에 따라 붓/텍스트 버튼 바로 아래로 이동) -->
+                <div class="flex flex-col space-y-1 flex-shrink-0 w-full">
+                    <label for="colorPicker" class="text-sm font-medium text-gray-700">색상 선택</label>
+                    <input type="color" id="colorPicker" value="#000000" class="w-full h-8 cursor-pointer rounded-md border-2 border-gray-300">
+                </div>
+
+                <!-- 3. 텍스트 입력 그룹 -->
+                <div id="textInputGroup" class="flex flex-col space-y-1 flex-shrink-0 w-full">
+                    <label for="textInput" class="text-sm font-medium text-gray-700">텍스트 내용</label>
+                    <input type="text" id="textInput" placeholder="입력 후 Enter 키를 누르세요" class="w-full p-2 rounded-md border border-gray-300 text-gray-800" value="Hello Gemini">
+                    <p id="textHint" class="text-xs text-red-500 mt-1 hidden">**Enter 키**로 확정 후 캔버스 클릭</p>
+                </div>
+
+                <!-- 구분선 -->
+                <div class="h-px w-full lg:h-px lg:w-full bg-gray-300 my-2 flex-shrink-0"></div>
+
+                <!-- 붓 크기 슬라이더 -->
+                <div class="flex flex-col space-y-1 flex-shrink-0">
+                    <label for="sizeSlider" class="text-sm font-medium text-gray-700">크기: <span id="sizeValue">5</span>px</label>
+                    <input type="range" id="sizeSlider" min="1" max="50" value="5" class="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-300">
+                </div>
+            </div>
+
+            <!-- 캔버스 영역 (우측/중앙) -->
+            <div class='flex-grow bg-gray-200 rounded-xl shadow-inner flex justify-center items-center p-2'>
+                <canvas id="drawingCanvas" class='rounded-lg shadow-xl'></canvas>
+            </div>
+        </div>
+
+        <!-- 액션 버튼 영역 -->
+        <div class='flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4 pt-4 border-t border-gray-200'>
+            <!-- 저장 버튼 -->
+            <button id="saveButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition duration-150 shadow-md hover:shadow-lg">
+                <i data-lucide="download" class="w-5 h-5 inline mr-2"></i> 그림 파일로 다운로드 & 공유
+            </button>
+            <button onclick="undoLastAction()" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-6 rounded-xl transition duration-150 shadow-md hover:shadow-lg">
+                <i data-lucide="undo-2" class="w-5 h-5 inline mr-2"></i> 되돌리기
+            </button>
+            <button onclick="clearCanvas(false)" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-xl transition duration-150 shadow-md hover:shadow-lg">
+                <i data-lucide="trash-2" class="w-5 h-5 inline mr-2"></i> 전체 지우기
+            </button>
+        </div>
+        
+        <!-- 프롬프트/영감 입력 칸 -->
+        <div class='pt-4'>
+            <h2 class='text-lg font-semibold text-gray-700 mb-2'>✨ 나만의 영감 / 프롬프트 입력</h2>
+            <textarea 
+                id="promptInput" 
+                placeholder="이 그림에 대한 당신의 생각, 프롬프트, 또는 아이디어를 자유롭게 기록해 보세요. (다운로드 & 공유 시 함께 사용됩니다.)" 
+                class="w-full p-3 h-24 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 resize-none"
+            ></textarea>
+        </div>
+
+    </div>
+
+    <script type="module">
+        lucide.createIcons();
+
+        // Padlet URL을 사용자가 요청한 정확한 주소로 설정
+        const PADLET_URL = 'https://padlet.com/hy7191/padlet-vvey0i7aoep7kju6'; 
+        
+        // --- Canvas Setup ---
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        let currentWidth = 0;
+        let currentHeight = 0;
+
+        // --- State Variables ---
+        let drawingMode = 'brush'; // 'brush', 'text'
+        let currentColor = '#000000';
+        let currentSize = 5;
+
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        
+        // 텍스트 배치 대기 상태
+        let pendingTextToDraw = ''; 
+        
+        // Undo History (Canvas Data URLs)
+        const history = [];
+        const MAX_HISTORY = 20;
+        
+        // 현재 로드된 템플릿의 URL
+        let currentTemplateUrl = ''; 
+
+        // --- Image Templates (로르샤흐 이미지) ---
+        const templates = [
+            { name: '로르샤흐 1', url: 'https://i.postimg.cc/kg20RfFr/1.png' }, 
+            { name: '로르샤흐 2', url: 'https://i.postimg.cc/T3BZVgCY/2.png' }, 
+            { name: '로르샤흐 3', url: 'https://i.postimg.cc/Jn3V40Ng/3.png' }, 
+            { name: '로르샤흐 4', url: 'https://i.postimg.cc/rmGXFsGm/4.png' }, 
+            { name: '로르샤흐 5', url: 'https://i.postimg.cc/nzKbcrKf/5.png' }, 
+            { name: '로르샤흐 6', url: 'https://i.postimg.cc/ZRzzSpdM/6.png' }, 
+            { name: '로르샤흐 7', url: 'https://i.postimg.cc/6q9s7KzL/7.png' }, 
+            { name: '로르샤흐 8', url: 'https://i.postimg.cc/j2vpP1FY/8.png' }, 
+            { name: '로르샤흐 9', url: 'https://i.postimg.cc/cLPVRwT2/9.png' }, 
+            { name: '로르샤흐 10', url: 'https://i.postimg.cc/CxR3nmHT/10.png' }
+        ];
+
+        // --- Utility Functions ---
+
+        /**
+         * 현재 장치가 모바일 환경인지 확인합니다.
+         */
+        function isMobileDevice() {
+            return /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
+        }
+
+        /**
+         * 캔버스 크기를 부모 컨테이너에 맞게 설정하고 내용을 재로드합니다.
+         */
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            
+            // 1. 컨테이너 너비 기반으로 최대 너비 계산
+            currentWidth = container.clientWidth - 20; 
+            
+            // 2. 4:3 비율을 선호하는 높이로 설정 
+            let preferredHeight = currentWidth * 0.75; 
+            
+            // 3. 뷰포트 높이의 65%를 최대 높이로 설정
+            const maxHeight = window.innerHeight * 0.65; 
+            
+            // 4. 높이가 최대치를 초과하면 높이에 맞춰 너비를 재계산
+            if (preferredHeight > maxHeight) {
+                currentHeight = maxHeight;
+                // 4:3 비율 유지를 위해 너비 재계산
+                currentWidth = currentHeight / 0.75;
+            } else {
+                currentHeight = preferredHeight;
+            }
+
+            // 이전 캔버스 내용을 임시 저장
+            const lastState = history.length > 0 ? history[history.length - 1] : null;
+
+            // 5. 캔버스 크기 업데이트
+            canvas.width = currentWidth;
+            canvas.height = currentHeight;
+            
+            // 6. 드로잉 설정을 다시 적용
+            ctx.strokeStyle = currentColor;
+            ctx.lineWidth = currentSize;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // 7. 캔버스 내용 재로드 (화면 비율 변경 시 내용 유지)
+            if (lastState) {
+                 const img = new Image();
+                 img.onload = function() {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    // 이전 내용을 새 캔버스 크기에 맞게 그립니다.
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                 };
+                 img.src = lastState;
+            } else {
+                 // 히스토리가 없으면 템플릿만 다시 로드 (초기 상태)
+                 loadTemplate(currentTemplateUrl, false); 
+            }
+        }
+
+        /**
+         * 좌표를 가져옵니다 (마우스 또는 터치).
+         */
+        function getCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+                e.preventDefault(); // 스크롤 방지
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            // 캔버스 해상도에 따른 논리적 픽셀 좌표를 계산합니다.
+            const x = (clientX - rect.left) * (canvas.width / rect.width);
+            const y = (clientY - rect.top) * (canvas.height / rect.height); 
+
+            return { x, y };
+        }
+
+        /**
+         * 메시지 박스를 표시합니다.
+         */
+        function showMessage(message, duration = 6000) {
+            const messageBox = document.getElementById('messageBox');
+            messageBox.textContent = message;
+            messageBox.classList.add('show');
+
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, duration);
+        }
+        
+        /**
+         * 텍스트를 클립보드에 복사합니다 (iframe 환경 대응).
+         */
+        function copyTextToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed'; 
+            textarea.style.left = '-9999px';
+            textarea.style.top = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                const successful = document.execCommand('copy');
+                return successful;
+            } catch (err) {
+                console.error('클립보드 복사 실패', err);
+                return false;
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
+
+        // --- History Management ---
+
+        /**
+         * 현재 캔버스 상태를 히스토리에 저장합니다.
+         */
+        function saveState() {
+            if (history.length >= MAX_HISTORY) {
+                history.shift(); 
+            }
+            history.push(canvas.toDataURL());
+        }
+
+        /**
+         * 마지막 동작을 되돌립니다.
+         */
+        function undoLastAction() {
+            if (history.length > 1) {
+                history.pop(); 
+                const lastState = history[history.length - 1];
+                
+                const img = new Image();
+                img.onload = function() {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height); 
+                    
+                    updateTemplateActiveState(currentTemplateUrl); 
+                    showMessage('되돌리기 완료!');
+                };
+                img.src = lastState;
+            } else if (history.length === 1) {
+                history.length = 0; 
+                loadTemplate(currentTemplateUrl, true); 
+                showMessage('캔버스가 초기 상태로 돌아갔습니다!');
+            } else {
+                showMessage('더 이상 되돌릴 수 없습니다.');
+            }
+        }
+        window.undoLastAction = undoLastAction; 
+
+        // --- Template Functions ---
+        
+        // 이미지 로드 및 중앙 50% 크기로 그리기
+        function loadAndDrawImage(url, scaleFactor = 0.5) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff'; // 기본 흰색 배경
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (!url) {
+                saveState();
+                return;
+            }
+
+            const img = new Image();
+            img.crossOrigin = 'Anonymous'; 
+
+            img.onload = function() {
+                const imgWidth = img.naturalWidth;
+                const imgHeight = img.naturalHeight;
+
+                const canvasAspectRatio = canvas.width / canvas.height;
+                const imageAspectRatio = imgWidth / imgHeight;
+
+                let dWidth, dHeight; 
+                
+                // 캔버스 크기에 맞게 이미지 크기 조정
+                if (imageAspectRatio > canvasAspectRatio) { 
+                    dHeight = canvas.height;
+                    dWidth = canvas.height * imageAspectRatio;
+                } else {
+                    dWidth = canvas.width;
+                    dHeight = canvas.width / imageAspectRatio;
+                }
+                
+                // 50% 비율로 축소
+                const scaledWidth = dWidth * scaleFactor;
+                const scaledHeight = dHeight * scaleFactor;
+                
+                // 중앙 정렬을 위한 좌표 계산
+                const finalDx = (canvas.width - scaledWidth) / 2;
+                const finalDy = (canvas.height - scaledHeight) / 2;
+
+                ctx.drawImage(img, finalDx, finalDy, scaledWidth, scaledHeight);
+                saveState();
+                showMessage('로르샤흐 템플릿이 로드되었습니다.');
+            };
+
+            img.onerror = function() {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                saveState();
+                showMessage('템플릿 로드에 실패했습니다. 흰색 배경으로 초기화합니다.');
+            };
+            
+            img.src = url;
+        }
+
+        function loadTemplate(url, shouldSaveState = true) {
+            currentTemplateUrl = url;
+            loadAndDrawImage(url);
+            updateTemplateActiveState(url);
+        }
+
+        function clearCanvas(shouldConfirm = true) {
+            
+            // history 초기화
+            history.length = 0;
+            
+            // 현재 템플릿만 다시 로드하여 드로잉 내용만 지웁니다.
+            loadTemplate(currentTemplateUrl, true);
+            document.getElementById('brushTool').click();
+            showMessage('캔버스 위의 그림을 초기화했습니다.');
+        }
+        window.clearCanvas = clearCanvas;
+
+        function updateTemplateActiveState(url) {
+             document.querySelectorAll('.template-thumbnail').forEach(el => {
+                el.classList.remove('active');
+                if (el.dataset.url === url) {
+                    el.classList.add('active');
+                }
+             });
+        }
+
+        function initTemplates() {
+            const container = document.getElementById('templateContainer');
+            
+            templates.forEach((template, index) => {
+                const img = document.createElement('img');
+                img.src = template.url; 
+                img.alt = template.name;
+                img.title = template.name;
+                img.className = 'template-thumbnail rounded-md';
+                img.dataset.url = template.url;
+
+                img.addEventListener('click', () => {
+                    loadTemplate(img.dataset.url);
+                });
+
+                container.appendChild(img);
+                
+                if (index === 0) {
+                    img.classList.add('active');
+                }
+            });
+            
+            resizeCanvas();
+            // history 초기화 후 첫 템플릿 로드 (로르샤흐 1)
+            history.length = 0;
+            loadTemplate(templates[0].url); 
+        }
+
+        // --- Color Picker Function ---
+        const colorPicker = document.getElementById('colorPicker');
+
+        function selectColor(color) {
+            currentColor = color;
+            colorPicker.value = color; 
+            showMessage(`색상을 ${currentColor}로 변경했습니다.`);
+        }
+        
+        // --- Drawing Functions (Brush) ---
+
+        function startDrawing(e) {
+            e.preventDefault();
+            isDrawing = true;
+            const { x, y } = getCoords(e);
+            [lastX, lastY] = [x, y];
+        }
+
+        function draw(e) {
+            e.preventDefault(); 
+            if (!isDrawing || drawingMode !== 'brush') return;
+
+            const { x, y } = getCoords(e);
+
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.strokeStyle = currentColor;
+            ctx.lineWidth = currentSize;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            [lastX, lastY] = [x, y];
+        }
+
+        function stopDrawing(e) {
+            if (isDrawing) {
+                isDrawing = false;
+                saveState(); 
+            }
+        }
+        
+        // --- Drawing Functions (Text) ---
+
+        const textInput = document.getElementById('textInput');
+        const textHint = document.getElementById('textHint');
+
+        // 텍스트 입력 필드에 Enter 키 리스너 추가 (Enter로 확정)
+        textInput.addEventListener('keydown', (e) => {
+            if (drawingMode === 'text' && e.key === 'Enter') {
+                e.preventDefault();
+                const textToSubmit = textInput.value.trim();
+                
+                if (textToSubmit) {
+                    pendingTextToDraw = textToSubmit;
+                    textInput.value = ''; // 입력 필드 초기화
+                    // 배치 준비 상태 시각화
+                    canvas.classList.remove('cursor-text');
+                    canvas.classList.add('cursor-grab'); 
+                    showMessage('✅ 텍스트가 확정되었습니다. 캔버스를 클릭하여 배치하세요.');
+                } else {
+                    showMessage('배치할 텍스트를 먼저 입력해주세요.', 2000);
+                }
+            }
+        });
+
+        // 텍스트 모드에서 캔버스 클릭 시 텍스트 그리기
+        function handleTextPlacement(e) {
+            if (drawingMode !== 'text' || !pendingTextToDraw) {
+                if (drawingMode === 'text') {
+                     showMessage("텍스트 입력 후 Enter 키를 눌러 확정해야 합니다.", 2000);
+                }
+                return; 
+            }
+
+            const textToDraw = pendingTextToDraw;
+            const { x, y } = getCoords(e);
+
+            ctx.fillStyle = currentColor;
+            ctx.font = `${currentSize * 2}px Inter, sans-serif`; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 캔버스에 텍스트 그리기
+            ctx.fillText(textToDraw, x, y);
+            
+            // 상태 초기화
+            pendingTextToDraw = '';
+            canvas.classList.remove('cursor-grab');
+            canvas.classList.add('cursor-text');
+            saveState();
+            
+            showMessage(`텍스트를 [${textToDraw.substring(0, 10)}] 위치에 배치했습니다.`);
+        }
+        
+        // --- Save and Share Logic (프롬프트 텍스트 포함) ---
+
+        /**
+         * 현재 캔버스 내용과 프롬프트 텍스트를 포함하는 임시 캔버스를 생성하고 Data URL을 반환합니다.
+         */
+        function getCanvasWithPrompt() {
+            const promptText = document.getElementById('promptInput').value.trim();
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // 1. 크기 설정: 원본 캔버스와 동일
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+
+            // 2. 현재 캔버스 내용 복사
+            tempCtx.drawImage(canvas, 0, 0);
+
+            if (promptText) {
+                // 3. 텍스트 스타일 및 위치 설정
+                const maxTextWidth = tempCanvas.width * 0.9;
+                const lineHeight = 30; 
+                
+                // 텍스트 색상
+                tempCtx.fillStyle = '#000000';
+                tempCtx.textAlign = 'center';
+                
+                // 텍스트 줄바꿈 처리
+                let words = promptText.split(' ');
+                let line = '';
+                let lines = [];
+                
+                for(let n = 0; n < words.length; n++) {
+                    let testLine = line + words[n] + ' ';
+                    tempCtx.font = '16px Inter, sans-serif'; // 본문 폰트
+                    let metrics = tempCtx.measureText(testLine);
+                    let testWidth = metrics.width;
+                    
+                    if (testWidth > maxTextWidth && n > 0) {
+                        lines.push(line.trim());
+                        line = words[n] + ' ';
+                    } else {
+                        line = testLine;
+                    }
+                }
+                lines.push(line.trim());
+
+                // 텍스트가 길 경우 최대 3줄까지만 표시
+                const maxLinesToShow = 3;
+                if (lines.length > maxLinesToShow) {
+                    lines = lines.slice(0, maxLinesToShow);
+                    lines[maxLinesToShow - 1] += '...';
+                }
+                
+                // 총 텍스트 높이 계산
+                const totalTextHeight = lines.length * lineHeight;
+                
+                // 시작 Y 위치 설정 (하단 20px 마진)
+                let y = tempCanvas.height - 20 - totalTextHeight; 
+                
+                // 제목 추가
+                tempCtx.font = 'bold 18px Inter, sans-serif'; 
+                tempCtx.fillText('✨ 나의 영감:', tempCanvas.width / 2, y);
+                y += 5; // 제목과 본문 사이 간격
+
+                // 본문 텍스트 그리기
+                tempCtx.font = '16px Inter, sans-serif'; 
+                lines.forEach((l, index) => {
+                    tempCtx.fillText(l, tempCanvas.width / 2, y + lineHeight + (index * lineHeight));
+                });
+            }
+
+            return tempCanvas.toDataURL('image/png');
+        }
+
+        document.getElementById('saveButton').addEventListener('click', () => {
+            const promptText = document.getElementById('promptInput').value.trim();
+            const imageURL = getCanvasWithPrompt(); 
+            
+            let downloadMessage = '';
+
+            if (isMobileDevice()) {
+                // --- 1. 모바일 환경: 새 탭 열기 (길게 눌러 저장 유도) ---
+                window.open(imageURL, '_blank'); 
+                downloadMessage = '🖼️ 1단계: 완성된 그림이 새 탭에 열렸습니다. 휴대폰에서는 이미지를 **길게 눌러** 갤러리에 저장하세요.';
+
+            } else {
+                // --- 2. PC 환경: download 속성을 사용한 직접 다운로드 ---
+                const a = document.createElement('a');
+                a.href = imageURL;
+                a.download = `나만의-아트-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                downloadMessage = '🖼️ 1단계: 그림 파일이 자동으로 다운로드되었습니다. 다운로드 폴더를 확인하세요.';
+            }
+
+            // 3. 프롬프트 클립보드 복사 
+            let shareMessage = '';
+            if (promptText) {
+                const success = copyTextToClipboard(promptText);
+                if (success) {
+                    shareMessage = '✅ 2단계: 그림 설명(프롬프트)이 클립보드에 복사되었습니다.';
+                } else {
+                    shareMessage = '⚠️ 2단계: 클립보드 복사 실패. 그림 설명을 수동으로 복사해주세요.';
+                }
+            } else {
+                shareMessage = '⚠️ 2단계: 그림 설명(프롬프트)은 비어있습니다.';
+            }
+
+            // 4. Padlet URL 열기
+            window.open(PADLET_URL, '_blank');
+            
+            // 5. 종합 메시지 안내
+            showMessage(`${downloadMessage} ${shareMessage} 3단계: Padlet 페이지가 새 탭에 열렸습니다. 저장한 그림과 복사한 설명을 붙여넣어 공유하세요!`, 10000); 
+        });
+        
+        // --- Event Listeners (Setup & UI) ---
+
+        // UI 모드 변경
+        document.querySelectorAll('.tool-button').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.tool-button').forEach(btn => {
+                    btn.classList.remove('active', 'bg-blue-500', 'hover:bg-blue-600');
+                    btn.classList.add('bg-gray-600', 'hover:bg-gray-700');
+                });
+                
+                button.classList.add('active', 'bg-blue-500', 'hover:bg-blue-600');
+                button.classList.remove('bg-gray-600', 'hover:bg-gray-700');
+                
+                drawingMode = button.dataset.mode;
+                
+                // 텍스트 배치 대기 상태 및 커서 초기화
+                pendingTextToDraw = '';
+                canvas.classList.remove('cursor-grab', 'cursor-text', 'cursor-brush');
+                
+                // 텍스트 힌트 표시 로직만 수정
+                if (drawingMode === 'text') {
+                    textHint.classList.remove('hidden'); // 힌트 표시
+                    canvas.classList.add('cursor-text');
+                    showMessage('텍스트 모드. 입력 후 Enter를 눌러 확정하세요.');
+                } else {
+                    textHint.classList.add('hidden'); // 힌트 숨김
+                    canvas.classList.add('cursor-brush');
+                    showMessage('붓 모드. 자유롭게 그림을 그리세요.');
+                }
+            });
+        });
+
+        // 색상 변경
+        colorPicker.addEventListener('input', (e) => {
+            selectColor(e.target.value);
+        });
+
+        // 크기 변경
+        const sizeSlider = document.getElementById('sizeSlider');
+        const sizeValueSpan = document.getElementById('sizeValue');
+        sizeSlider.addEventListener('input', (e) => {
+            currentSize = parseInt(e.target.value);
+            sizeValueSpan.textContent = currentSize;
+        });
+
+        window.addEventListener('load', () => {
+            initTemplates();
+            // 기본 커서 설정
+            canvas.classList.add('cursor-brush');
+        });
+        
+        window.addEventListener('resize', resizeCanvas);
+
+
+        // --- Canvas Event Listeners (Unified) ---
+        
+        // Mouse Events
+        canvas.addEventListener('mousedown', (e) => {
+            if (drawingMode === 'brush') startDrawing(e);
+        });
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', (e) => { 
+            if (drawingMode === 'brush') stopDrawing(e);
+        }); 
+        canvas.addEventListener('mouseout', (e) => { 
+            if (drawingMode === 'brush') stopDrawing(e);
+        }); 
+        
+        // 텍스트 모드에서는 클릭 시 텍스트 배치
+        canvas.addEventListener('click', (e) => {
+            if (drawingMode === 'text') handleTextPlacement(e);
+        });
+
+        // Touch Events
+        canvas.addEventListener('touchstart', (e) => {
+            if (drawingMode === 'brush') startDrawing(e);
+        });
+        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchend', (e) => { 
+            if (drawingMode === 'brush') stopDrawing(e);
+        }); 
+        canvas.addEventListener('touchcancel', (e) => { 
+            if (drawingMode === 'brush') stopDrawing(e);
+        }); 
+        
+    </script>
+</body>
+</html>
